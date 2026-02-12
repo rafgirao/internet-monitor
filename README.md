@@ -1,76 +1,73 @@
-# 🌐 Internet Monitor — macOS
+# 🌐 Internet Monitor Pro — macOS
 
-A lightweight shell script to monitor your internet connection in real-time. It provides native macOS notifications when your connection drops, restores, or experiences high latency.
+A high-performance synchronized system to monitor your internet connection in real-time. It uses a background service for accurate data collection and a beautiful SwiftBar plugin for visual status.
 
 ## ✨ Features
 
-- **Real-time Monitoring**: Periodic checks using `ping`.
-- **macOS Notifications**: Visual alerts when connectivity changes or latency is high.
-- **Latency Alerts**: Configurable threshold to warn you about slow connections.
-- **Detailed Logging**: All events are logged with timestamps and status codes.
-- **Log Truncation**: Automatic truncation when the log file reaches 1MB to keep it from growing indefinitely.
-- **Single-Instance Enforcement**: Uses a PID file to prevent multiple instances from running simultaneously.
-- **Launch Agent Support**: Easily run it in the background on startup.
+- **Parallel Monitoring**: Simultaneously pings multiple hosts (`8.8.8.8`, `1.1.1.1`, etc.) for faster and more accurate results.
+- **Micro-Stats**: Calculates Average latency and Jitter (Standard Deviation) to detect connection instability.
+- **SwiftBar Dashboard**: A premium menu bar interface with real-time stats and a color-coded event history.
+- **Native Notifications**: Visual and sound alerts via `osascript` when connectivity drops or latency spikes.
+- **Efficient & Robust**: Background service handles all logic once every 5s, while the UI merely reads the logs.
 
-## 🚀 Quick Start
+## 📂 Project Structure
 
-### 1. Run Manually
-To start monitoring immediately:
+- `internet-monitor.sh`: The **Engine**. Runs in the background, performs parallel pings, manages notifications, and writes logs.
+- `internet-monitor.1m.sh`: The **Interface**. A SwiftBar plugin that reads logs and displays the status on your menu bar.
+- `internet_monitor.log`: Shared log file used for communication between the engine and the interface.
+
+## 🚀 Setup
+
+### 0. Prerequisites (Install SwiftBar)
+If you don't have SwiftBar installed yet, you can install it via [Homebrew](https://brew.sh/):
 ```bash
-./internet-monitor.sh
+brew install --cask swiftbar
 ```
+Or download the latest release from the [official website](https://swiftbar.app/).
 
-### 2. Install as Background Service (macOS)
-1. **Prepare the .plist**:
-   Copy the template and replace the placeholders:
-   ```bash
-   cp com.local.internet-monitor.plist.template com.local.internet-monitor.plist
-   ```
-   Edit `com.local.internet-monitor.plist` and replace:
-   - `{{WORKING_DIR}}` with the absolute path to this folder.
-   - `{{USER}}` with your macOS username.
-
-2. **Register the Agent**:
+### 1. Install the Background Engine
+1. **Register the Agent**:
    ```bash
    cp com.local.internet-monitor.plist ~/Library/LaunchAgents/
    launchctl load ~/Library/LaunchAgents/com.local.internet-monitor.plist
    ```
+   *Note: Ensure the paths inside the `.plist` point to your actual script location.*
 
-## ⚙️ Configuration
-
-You can customize the script behavior by editing the variables at the top of `internet-monitor.sh`:
-
+### 2. Install the SwiftBar Interface
+To keep the plugin file in this project folder while making it visible to SwiftBar, use a symbolic link:
 ```bash
-HOSTS=("8.8.8.8" "1.1.1.1" "google.com")   # Hosts to ping
-INTERVAL=5          # Seconds between checks
-TIMEOUT=2           # Ping timeout in seconds
-FAIL_THRESHOLD=2    # Failures before notifying "Dropped"
-LATENCY_THRESHOLD=100 # Threshold for high-latency alerts (ms)
-LOG_FILE="$HOME/internet_monitor.log"
+ln -s "$(pwd)/internet-monitor.1m.sh" ~/SwiftBarPlugins/internet-monitor.1m.sh
 ```
 
-## 📊 Monitoring & Logs
+## 📊 Understanding the Display
 
-- **Interactive Output**: When run in a terminal, it shows a clean dashboard with current latency.
-- **Log File**: Check logs at `~/internet_monitor.log`.
-- **Stdout/Stderr**: If running as a background agent, check:
-  - `~/internet-monitor-stdout.log`
-  - `~/internet-monitor-stderr.log`
+- **⚡30ms (White)**: Your average latency is 30ms.
+- **Color Coding (in dropdown)**:
+    - 🟢 **Green**: Latency < 150ms (Perfect)
+    - 🟡 **Yellow**: Latency > 150ms (Warning: Slow/Jittery)
+    - 🔴 **Red**: Latency > 300ms or Offline (Critical)
 
 ## 🛠️ Management
 
-- **Stop Background Agent**:
+### 🟢 From the SwiftBar Menu (UI)
+- **Restart Monitor**: Restarts the background engine (Stop + Start).
+- **Refresh Plugin**: Forces the SwiftBar UI to reload the script and logs immediately. Use this if the menu seems stuck or after you've edited the plugin code.
+
+### 💻 From the Terminal (CLI)
+- **Start Monitor**:
+  ```bash
+  launchctl load ~/Library/LaunchAgents/com.local.internet-monitor.plist
+  ```
+- **Stop Monitor**:
   ```bash
   launchctl unload ~/Library/LaunchAgents/com.local.internet-monitor.plist
   ```
-- **View Logs**:
+- **View Live Logs**:
   ```bash
   tail -f ~/internet_monitor.log
   ```
 
 ## ❓ Troubleshooting
 
-- **Lock File Error**: If the script refuses to start with an "already running" error after a crash, manually remove the lock file:
-  ```bash
-  rm ~/.internet_monitor.pid
-  ```
+- **Icon Not Appearing**: Ensure the symbolic link in `~/SwiftBarPlugins/` exists and points to the correct absolute path of `internet-monitor.1m.sh`.
+- **Permissions**: Make sure both scripts are executable: `chmod +x *.sh`.

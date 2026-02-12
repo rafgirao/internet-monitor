@@ -14,15 +14,10 @@ LATENCY_THRESHOLD=150 # Latency in ms to alert (e.g., 150ms)
 LOG_FILE="$HOME/internet_monitor.log"
 PID_FILE="$HOME/.internet_monitor.pid"
 MAX_LOG_SIZE=1048576 # 1MB in bytes
-CURRENT_LATENCY="0"
 
-# ── Terminal Colors ─────────────────────────────────────────
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-RESET='\033[0m'
+# ── Colors ──────────────────────────────────────────
+RED_GREEN_THEME=("#d73027" "#fc8d59" "#fee08b" "#d9ef8b" "#91cf60" "#1a9850")
+COLORS=("${RED_GREEN_THEME[@]}")
 
 # ── Internal State ──────────────────────────────────────────
 was_online=true
@@ -35,19 +30,16 @@ down_since=""
 if [ -f "$PID_FILE" ]; then
     PID=$(cat "$PID_FILE")
     if ps -p "$PID" > /dev/null 2>&1; then
-        echo -e "${RED}${BOLD}Error: Monitor already running (PID: $PID)${RESET}"
         exit 1
     fi
 fi
 echo $$ > "$PID_FILE"
 
-# ── Notification Functions ──────────────────────────────────
+# ── Helper Functions ────────────────────────────────────────
 notify() {
     local title="$1"
     local message="$2"
-    local sound="$3"  # "default", "Basso", "Sosumi", etc.
-
-    # Native macOS notification via osascript
+    local sound="$3"
     osascript -e "display notification \"$message\" with title \"$title\" sound name \"$sound\""
 }
 
@@ -57,89 +49,68 @@ log() {
     local timestamp
     timestamp=$(date '+%Y-%m-%d %H:%M:%S')
 
-    # Log truncation (if file > 1MB)
     if [ -f "$LOG_FILE" ]; then
-        local size
         size=$(stat -f%z "$LOG_FILE" 2>/dev/null || echo 0)
         if [ "$size" -gt "$MAX_LOG_SIZE" ]; then
-            echo "[$timestamp] [INFO] Log truncated (exceeded 1MB)" > "$LOG_FILE"
+            echo "[$timestamp] [INFO] Log truncated" > "$LOG_FILE"
         fi
     fi
-
     echo "[$timestamp] [$level] $msg" >> "$LOG_FILE"
 }
 
-# ── Connectivity Check ──────────────────────────────────────
+# ── Connectivity Check (Parallel) ──────────────────────────
 check_internet() {
-    for host in "${HOSTS[@]}"; do
-        # -c 1: one packet
-        # -t $TIMEOUT: global timeout in seconds (macOS)
-        # -n: do not resolve names (avoids hanging if DNS is down)
-        local output
-        output=$(ping -c 1 -t "$TIMEOUT" -n "$host" 2>/dev/null)
-        if [ $? -eq 0 ]; then
-            # Extract latency (e.g., time=15.2 ms)
-            CURRENT_LATENCY=$(echo "$output" | grep -oE "time=[0-9.]+" | cut -d= -f2)
-            return 0  # Online
+    local temp_dir
+    temp_dir=$(mktemp -d)
+    
+    for i in "${!HOSTS[@]}"; do
+        (
+            if res=$(ping -c 2 -n -t "$TIMEOUT" "${HOSTS[$i]}" 2>/dev/null); then
+                # Extract avg latency
+                echo "$res" | awk -F '/' 'END {printf "%.0f\n", $5}' > "$temp_dir/$i"
+            fi
+        ) &
+    done
+    wait
+
+    local times=()
+    local total=0
+    for i in "${!HOSTS[@]}"; do
+        if [ -s "$temp_dir/$i" ]; then
+            val=$(cat "$temp_dir/$i")
+            times+=("$val")
+            ((total += val))
         fi
     done
-    CURRENT_LATENCY="-"
-    return 1  # Offline
-}
+    rm -rf "$temp_dir"
 
-# ── Display Header ──────────────────────────────────────────
-print_header() {
-    clear
-    echo -e "${CYAN}${BOLD}"
-    echo "  ┌─────────────────────────────────────────────┐"
-    echo "  │       🌐  Internet Monitor — macOS           │"
-    echo "  └─────────────────────────────────────────────┘"
-    echo -e "${RESET}"
-    echo -e "  ${BOLD}Monitored Hosts:${RESET} ${HOSTS[*]}"
-    echo -e "  ${BOLD}Interval:${RESET}        ${INTERVAL}s"
-    echo -e "  ${BOLD}Latency Alert:${RESET}   >${LATENCY_THRESHOLD}ms"
-    echo -e "  ${BOLD}Log:${RESET}             $LOG_FILE"
-    echo -e "  ${BOLD}Started at:${RESET}      $(date '+%m/%d/%Y %H:%M:%S')"
-    echo ""
-    echo -e "  ${YELLOW}Press Ctrl+C to stop.${RESET}"
-    echo ""
-    echo "  ──────────────────────────────────────────────"
-}
-
-# ── Status Line ─────────────────────────────────────────────
-print_status() {
-    local status="$1"
-    local timestamp
-    timestamp=$(date '+%H:%M:%S')
-
-    if [ "$status" = "online" ]; then
-        local color="${CYAN}"
-        # Compare latency if it's a number
-        if [[ "$CURRENT_LATENCY" =~ ^[0-9.]+$ ]]; then
-            local lat_int="${CURRENT_LATENCY%.*}"
-            if [ "$lat_int" -ge "$LATENCY_THRESHOLD" ]; then
-                color="${YELLOW}"
-            fi
-        fi
-        echo -e "  [$timestamp]  ${GREEN}${BOLD}● ONLINE${RESET}  ${color}(${CURRENT_LATENCY} ms)${RESET}  (check #$check_count)"
-    else
-        echo -e "  [$timestamp]  ${RED}${BOLD}● OFFLINE${RESET}  (failure #$fail_count / check #$check_count)"
+    if [ ${#times[@]} -eq 0 ]; then
+        CURRENT_AVG="-"
+        CURRENT_SD="0"
+        return 1
     fi
+
+    local n=${#times[@]}
+    local avg=$((total / n))
+    
+    local dev_sum=0
+    for t in "${times[@]}"; do
+        (( dev_sum += (t - avg) ** 2 ))
+    done
+    local sd=$(echo "sqrt($dev_sum / $n)" | bc -l | awk '{printf "%d", $1}')
+
+    CURRENT_AVG=$avg
+    CURRENT_SD=$sd
+    return 0
 }
 
-# ── Trap for Clean Exit ─────────────────────────────────────
 on_exit() {
-    echo ""
-    echo -e "\n  ${YELLOW}Monitor stopped. Checks performed: $check_count${RESET}"
-    echo -e "  Log saved to: ${BOLD}$LOG_FILE${RESET}\n"
-    log "INFO" "Monitor stopped after $check_count checks."
     rm -f "$PID_FILE"
     exit 0
 }
 trap on_exit SIGINT SIGTERM
 
 # ── Main Loop ───────────────────────────────────────────────
-print_header
 log "INFO" "Monitor started. Hosts: ${HOSTS[*]}"
 
 while true; do
@@ -147,60 +118,33 @@ while true; do
 
     if check_internet; then
         fail_count=0
-
         if [ "$was_online" = false ]; then
-            # Internet is back!
             was_online=true
             down_time=""
-            if [ -n "$down_since" ]; then
-                down_time=" (was offline since $down_since)"
-            fi
-            echo ""
-            echo -e "  ${GREEN}${BOLD}✅  INTERNET RESTORED${down_time}${RESET}"
-            echo ""
+            [ -n "$down_since" ] && down_time=" (was offline since $down_since)"
             notify "✅ Internet Restored" "Connection reestablished$down_time" "Glass"
             log "INFO" "Internet restored$down_time"
             down_since=""
         fi
 
-        print_status "online"
-        log "OK" "Online ($CURRENT_LATENCY ms) (check $check_count)"
+        log "OK" "Online ${CURRENT_AVG}±${CURRENT_SD}ms (check $check_count)"
 
-        # ── High Latency Check ──────────────────────────────
-        if [[ "$CURRENT_LATENCY" =~ ^[0-9.]+$ ]]; then
-            lat_int="${CURRENT_LATENCY%.*}"
-            if [ "$lat_int" -ge "$LATENCY_THRESHOLD" ]; then
-                if [ "$was_latency_high" = false ]; then
-                    was_latency_high=true
-                    notify "⚠️ High Latency" "Current ping: ${CURRENT_LATENCY}ms (limit: ${LATENCY_THRESHOLD}ms)" "Tink"
-                    log "WARN" "High latency detected: ${CURRENT_LATENCY}ms"
-                fi
-            else
-                if [ "$was_latency_high" = true ]; then
-                    was_latency_high=false
-                    log "INFO" "Latency normalized: ${CURRENT_LATENCY}ms"
-                fi
+        if [ "$CURRENT_AVG" -ge "$LATENCY_THRESHOLD" ]; then
+            if [ "$was_latency_high" = false ]; then
+                was_latency_high=true
+                notify "⚠️ High Latency" "Avg: ${CURRENT_AVG}ms" "Tink"
+                log "WARN" "High latency: ${CURRENT_AVG}ms"
             fi
+        else
+            was_latency_high=false
         fi
-
     else
         ((fail_count++))
-
         if [ "$was_online" = true ] && [ "$fail_count" -ge "$FAIL_THRESHOLD" ]; then
-            # Internet is down!
             was_online=false
             down_since=$(date '+%H:%M:%S')
-            echo ""
-            echo -e "  ${RED}${BOLD}🚨  INTERNET DROPPED! (${down_since})${RESET}"
-            echo ""
-            notify "🚨 Internet Dropped!" "Disconnection detected at $down_since" "Sosumi"
-            log "ERROR" "Internet OFFLINE detected at $down_since"
-        fi
-
-        print_status "offline"
-
-        if [ "$was_online" = false ]; then
-            log "WARN" "Still offline (failure $fail_count, check $check_count)"
+            notify "🚨 Internet Dropped!" "Disconnection at $down_since" "Sosumi"
+            log "ERROR" "Internet OFFLINE at $down_since"
         fi
     fi
 
