@@ -12,6 +12,8 @@ TIMEOUT=2           # Global ping timeout in seconds (macOS -t)
 FAIL_THRESHOLD=2    # Consecutive failures before alerting
 LATENCY_THRESHOLD=100 # Latency in ms to alert (e.g., 150ms)
 LOG_FILE="$HOME/internet_monitor.log"
+PID_FILE="$HOME/.internet_monitor.pid"
+MAX_LOG_SIZE=1048576 # 1MB in bytes
 CURRENT_LATENCY="0"
 
 # ── Terminal Colors ─────────────────────────────────────────
@@ -29,6 +31,16 @@ fail_count=0
 check_count=0
 down_since=""
 
+# ── Lock Instance ───────────────────────────────────────────
+if [ -f "$PID_FILE" ]; then
+    PID=$(cat "$PID_FILE")
+    if ps -p "$PID" > /dev/null 2>&1; then
+        echo -e "${RED}${BOLD}Error: Monitor already running (PID: $PID)${RESET}"
+        exit 1
+    fi
+fi
+echo $$ > "$PID_FILE"
+
 # ── Notification Functions ──────────────────────────────────
 notify() {
     local title="$1"
@@ -44,6 +56,16 @@ log() {
     local msg="$2"
     local timestamp
     timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+
+    # Log truncation (if file > 1MB)
+    if [ -f "$LOG_FILE" ]; then
+        local size
+        size=$(stat -f%z "$LOG_FILE" 2>/dev/null || echo 0)
+        if [ "$size" -gt "$MAX_LOG_SIZE" ]; then
+            echo "[$timestamp] [INFO] Log truncated (exceeded 1MB)" > "$LOG_FILE"
+        fi
+    fi
+
     echo "[$timestamp] [$level] $msg" >> "$LOG_FILE"
 }
 
@@ -111,6 +133,7 @@ on_exit() {
     echo -e "\n  ${YELLOW}Monitor stopped. Checks performed: $check_count${RESET}"
     echo -e "  Log saved to: ${BOLD}$LOG_FILE${RESET}\n"
     log "INFO" "Monitor stopped after $check_count checks."
+    rm -f "$PID_FILE"
     exit 0
 }
 trap on_exit SIGINT SIGTERM

@@ -8,6 +8,8 @@ A lightweight shell script to monitor your internet connection in real-time. It 
 - **macOS Notifications**: Visual alerts when connectivity changes or latency is high.
 - **Latency Alerts**: Configurable threshold to warn you about slow connections.
 - **Detailed Logging**: All events are logged with timestamps and status codes.
+- **Log Truncation**: Automatic truncation when the log file reaches 1MB to keep it from growing indefinitely.
+- **Single-Instance Enforcement**: Uses a PID file to prevent multiple instances from running simultaneously.
 - **Launch Agent Support**: Easily run it in the background on startup.
 
 ## 🚀 Quick Start
@@ -64,6 +66,13 @@ LOG_FILE="$HOME/internet_monitor.log"
 - **View Logs**:
   ```bash
   tail -f ~/internet_monitor.log
+  ```
+
+## ❓ Troubleshooting
+
+- **Lock File Error**: If the script refuses to start with an "already running" error after a crash, manually remove the lock file:
+  ```bash
+  rm ~/.internet_monitor.pid
   ```
 
 ---
