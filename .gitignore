@@ -1,0 +1,8 @@
+# Logs
+*.log
+
+# OS generated files
+.DS_Store
+
+# User-specific Launch Agent (should be created from template)
+com.local.internet-monitor.plist
