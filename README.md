@@ -50,6 +50,8 @@ ln -s "$(pwd)/internet-monitor.1m.sh" ~/SwiftBarPlugins/internet-monitor.1m.sh
 ## 🛠️ Management
 
 ### 🟢 From the SwiftBar Menu (UI)
+- **Start Monitor**: Starts the background engine.
+- **Stop Monitor**: Stops the background engine.
 - **Restart Monitor**: Restarts the background engine (Stop + Start).
 - **Refresh Plugin**: Forces the SwiftBar UI to reload the script and logs immediately. Use this if the menu seems stuck or after you've edited the plugin code.
 

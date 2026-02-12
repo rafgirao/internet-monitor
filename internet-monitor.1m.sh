@@ -43,8 +43,9 @@ else
 fi
 
 echo "Recent Events:"
-[ -f "$LOG_FILE" ] && tail -n 8 "$LOG_FILE" | tail -r | while read -r line; do
-    clean_line=$(echo "$line" | sed -E 's/\[.*\] \[(.*)\] /\1: /')
+[ -f "$LOG_FILE" ] && tail -n 30 "$LOG_FILE" | tail -r | while read -r line; do
+    # Extract time and level: [2024-02-12 18:00:00] [OK] -> 18:00:00 OK
+    clean_line=$(echo "$line" | sed -E 's/\[.* ([0-9:]+)\] \[(.*)\] /\1 \2: /')
     
     color="white"
     [[ "$line" == *"[ERROR]"* ]] && color=$COLOR_BAD
