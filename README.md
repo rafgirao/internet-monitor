@@ -74,6 +74,3 @@ LOG_FILE="$HOME/internet_monitor.log"
   ```bash
   rm ~/.internet_monitor.pid
   ```
-
----
-*Created by Antigravity*
